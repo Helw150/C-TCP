@@ -47,18 +47,44 @@ void stop_timer()
     sigprocmask(SIG_BLOCK, &sigmask, NULL);
 }
 
+int find_packet_index(int seqno)
+{
+    for(int i = 0; i < WINDOW_SIZE; i++){
+	if (sndpkt[i] != NULL && seqno == sndpkt[i]->hdr.seqno){
+	    return i;
+	}
+    }
+    return -1;
+}
+
+int find_empty_index()
+{
+    for(int i = 0; i < WINDOW_SIZE; i++){
+	if (sndpkt[i] == NULL){
+	    return i;
+	}
+    }
+    return -1;
+}
+
+
 void resend_packets(int sig)
 {
     if (sig == SIGALRM)
 	{
-	    //Resend all packets range between 
-	    //sendBase and nextSeqNum
+	    //Resend all packets in our currently sent packets
+	    // array. Since already acknowledged packets are
+	    // removed from the array.
 	    VLOG(INFO, "Timeout happend");
-	    if(sendto(sockfd, sndpkt[num_packets_sent], TCP_HDR_SIZE + get_data_size(sndpkt[num_packets_sent]), 0, 
-		      ( const struct sockaddr *)&serveraddr, serverlen) < 0)
-		{
-		    error("sendto");
+	    for(int i = 0; i < WINDOW_SIZE; i++){
+		if(sndpkt[i] != NULL){
+		    if(sendto(sockfd, sndpkt[i], TCP_HDR_SIZE + get_data_size(sndpkt[i]), 0, 
+			      ( const struct sockaddr *)&serveraddr, serverlen) < 0)
+			{
+			    error("sendto");
+			}
 		}
+	    }
 	}
     start_timer();
 }
@@ -83,13 +109,12 @@ void init_timer(int delay, void (*sig_handler)(int))
 
 int main (int argc, char **argv)
 {
-    int portno, len;
+    int portno, len=1, pkt_index;
     int next_seqno;
     int last_ackno = 0;
     char *hostname;
     char buffer[DATA_SIZE];
     FILE *fp;
-
     /* check command line arguments */
     if (argc != 4) {
         fprintf(stderr,"usage: %s <hostname> <port> <FILE>\n", argv[0]);
@@ -125,26 +150,26 @@ int main (int argc, char **argv)
     assert(MSS_SIZE - TCP_HDR_SIZE > 0);
 
     //Stop and wait protocol
-
     init_timer(RETRY, resend_packets);
     next_seqno = 0;
     while(1){
 	while (len > 0 && num_packets_sent < WINDOW_SIZE)
 	    {
+		pkt_index = find_empty_index();
 		len = fread(buffer, 1, DATA_SIZE, fp);
 		if (len <= 0)
 		    {
 			VLOG(INFO, "End Of File has been reached");
-			sndpkt[num_packets_sent] = make_packet(0);
-			sendto(sockfd, sndpkt[num_packets_sent], TCP_HDR_SIZE,  0,
+			sndpkt[pkt_index] = make_packet(0);
+			sendto(sockfd, sndpkt[pkt_index], TCP_HDR_SIZE,  0,
 			       (const struct sockaddr *)&serveraddr, serverlen);
 			break;
 		    }
 		send_base = next_seqno;
 		next_seqno = send_base + len;
-		sndpkt[num_packets_sent] = make_packet(len);
-		memcpy(sndpkt[num_packets_sent]->data, buffer, len);
-		sndpkt[num_packets_sent]->hdr.seqno = send_base;
+		sndpkt[pkt_index] = make_packet(len);
+		memcpy(sndpkt[pkt_index]->data, buffer, len);
+		sndpkt[pkt_index]->hdr.seqno = send_base;
 		//Wait for ACK
 		VLOG(DEBUG, "Sending packet %d to %s", 
 		     send_base, inet_ntoa(serveraddr.sin_addr));
@@ -153,7 +178,7 @@ int main (int argc, char **argv)
 		 * will assign a random port number so that server can send its
 		 * response to the src port.
 		 */
-		if(sendto(sockfd, sndpkt[num_packets_sent], TCP_HDR_SIZE + get_data_size(sndpkt[num_packets_sent]), 0, 
+		if(sendto(sockfd, sndpkt[pkt_index], TCP_HDR_SIZE + get_data_size(sndpkt[pkt_index]), 0, 
 			  ( const struct sockaddr *)&serveraddr, serverlen) < 0)
 		    {
 			error("sendto");
@@ -173,7 +198,6 @@ int main (int argc, char **argv)
 	    }
 	recvpkt = (tcp_packet *)buffer;
 	if(recvpkt->hdr.ackno > last_ackno){
-	    last_ackno = recvpkt->hdr.ackno;
 	    printf("%d \n", recvpkt->hdr.ackno);
 	    assert(get_data_size(recvpkt) <= DATA_SIZE);
 	    stop_timer();
@@ -182,8 +206,9 @@ int main (int argc, char **argv)
 	    if(num_packets_sent > 0){
 		start_timer();
 	    }
-	    /*resend pack if dont recv ack */
-	    free(sndpkt[num_packets_sent]);
+	    pkt_index = find_packet_index(last_ackno);
+	    sndpkt[pkt_index] = NULL;
+	    last_ackno = recvpkt->hdr.ackno;
 	    if(len <= 0 && num_packets_sent == 0){
 		return 0;
 	    }
