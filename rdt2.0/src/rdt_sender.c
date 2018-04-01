@@ -28,6 +28,7 @@ int send_base=0;
 
 int sockfd, serverlen;
 int num_packets_sent = 0;
+int last_ackno = 0;
 struct sockaddr_in serveraddr;
 struct itimerval timer; 
 tcp_packet *sndpkt[WINDOW_SIZE];
@@ -50,6 +51,10 @@ void stop_timer()
 int find_packet_index(int seqno)
 {
     for(int i = 0; i < WINDOW_SIZE; i++){
+        if (sndpkt[i]->hdr.seqno < seqno){
+            sndpkt[i] = NULL;
+            num_packets_sent--;
+        }
 	if (sndpkt[i] != NULL && seqno == sndpkt[i]->hdr.seqno){
 	    return i;
 	}
@@ -72,12 +77,14 @@ void resend_packets(int sig)
 {
     if (sig == SIGALRM)
 	{
+            VLOG(DEBUG, "Last Acknowledgement %d \n", last_ackno);
 	    //Resend all packets in our currently sent packets
 	    // array. Since already acknowledged packets are
 	    // removed from the array.
 	    VLOG(INFO, "Timeout happend");
 	    for(int i = 0; i < WINDOW_SIZE; i++){
 		if(sndpkt[i] != NULL){
+                    VLOG(DEBUG, "Resending %d \n", sndpkt[i]->hdr.seqno);
 		    if(sendto(sockfd, sndpkt[i], TCP_HDR_SIZE + get_data_size(sndpkt[i]), 0, 
 			      ( const struct sockaddr *)&serveraddr, serverlen) < 0)
 			{
@@ -85,8 +92,8 @@ void resend_packets(int sig)
 			}
 		}
 	    }
+	    start_timer();
 	}
-    start_timer();
 }
 
 
@@ -111,7 +118,6 @@ int main (int argc, char **argv)
 {
     int portno, len=1, pkt_index;
     int next_seqno;
-    int last_ackno = 0;
     char *hostname;
     char buffer[DATA_SIZE];
     FILE *fp;
@@ -155,6 +161,8 @@ int main (int argc, char **argv)
     while(1){
 	while (len > 0 && num_packets_sent < WINDOW_SIZE)
 	    {
+                VLOG(INFO, "Sending new packet");
+                num_packets_sent++;
 		pkt_index = find_empty_index();
 		len = fread(buffer, 1, DATA_SIZE, fp);
 		if (len <= 0)
@@ -183,12 +191,11 @@ int main (int argc, char **argv)
 		    {
 			error("sendto");
 		    }
-		if(num_packets_sent == 0){
+		if(num_packets_sent == 1){
 		    start_timer();
 		}
 		//ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
 		//struct sockaddr *src_addr, socklen_t *addrlen);
-		num_packets_sent++;
 		printf("%d \n", num_packets_sent);
 	    }
 	if(recvfrom(sockfd, buffer, MSS_SIZE, 0,
@@ -197,8 +204,9 @@ int main (int argc, char **argv)
 		error("recvfrom");
 	    }
 	recvpkt = (tcp_packet *)buffer;
+        VLOG(DEBUG, "%d \n", recvpkt->hdr.ackno);
 	if(recvpkt->hdr.ackno > last_ackno){
-	    printf("%d \n", recvpkt->hdr.ackno);
+            VLOG(DEBUG, "New Acknowledgement");
 	    assert(get_data_size(recvpkt) <= DATA_SIZE);
 	    stop_timer();
 	    num_packets_sent--;
@@ -209,9 +217,9 @@ int main (int argc, char **argv)
 	    pkt_index = find_packet_index(last_ackno);
 	    sndpkt[pkt_index] = NULL;
 	    last_ackno = recvpkt->hdr.ackno;
-	    if(len <= 0 && num_packets_sent == 0){
-		return 0;
-	    }
+	}
+	if(len <= 0){
+	    break;
 	}
     }
     return 0;

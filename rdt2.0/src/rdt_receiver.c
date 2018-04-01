@@ -111,13 +111,13 @@ int main(int argc, char **argv) {
          * sendto: ACK back to the client 
          */
 	if(recvpkt->hdr.seqno == expected_seqno) {
-	    expected_seqno = expected_seqno + recvpkt->hdr.data_size;
+	    expected_seqno += recvpkt->hdr.data_size;
+            fseek(fp, recvpkt->hdr.seqno, SEEK_SET);
+            fwrite(recvpkt->data, 1, recvpkt->hdr.data_size, fp);
 	}
 	gettimeofday(&tp, NULL);
 	VLOG(DEBUG, "%lu, %d, %d", tp.tv_sec, recvpkt->hdr.data_size, recvpkt->hdr.seqno);
-		
-	fseek(fp, recvpkt->hdr.seqno, SEEK_SET);
-	fwrite(recvpkt->data, 1, recvpkt->hdr.data_size, fp);
+        
 	sndpkt = make_packet(0);
 	sndpkt->hdr.ackno = expected_seqno;
 	sndpkt->hdr.ctr_flags = ACK;
