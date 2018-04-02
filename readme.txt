@@ -13,7 +13,7 @@ Instructions:
 To build - run Make in the rdt2.0/src directory.
 To run the sender - run /rdt2.0/obj/rdt_sender receiver_ip receiver_port infile.
 To run the receiver - run /rdt2.0/obj/rdt_receiver port outfile.
-To test:
+To test: Use run.py or 
 
 cd project2-will
 dd if=/dev/urandom of=small_file.bin bs=1048576 count=1
