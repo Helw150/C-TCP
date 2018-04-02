@@ -29,6 +29,7 @@ int send_base=0;
 int sockfd, serverlen;
 int num_packets_sent = 0;
 int last_ackno = 0;
+int rounds_since_ack = 0;
 struct sockaddr_in serveraddr;
 struct itimerval timer; 
 tcp_packet *sndpkt[WINDOW_SIZE];
@@ -50,16 +51,17 @@ void stop_timer()
 
 int find_packet_index(int seqno)
 {
+    int pktindex = -1;
     for(int i = 0; i < WINDOW_SIZE; i++){
         if (sndpkt[i]->hdr.seqno < seqno){
             sndpkt[i] = NULL;
             num_packets_sent--;
         }
 	if (sndpkt[i] != NULL && seqno == sndpkt[i]->hdr.seqno){
-	    return i;
+	    pktindex = i;
 	}
     }
-    return -1;
+    return pktindex;
 }
 
 int find_empty_index()
@@ -75,6 +77,7 @@ int find_empty_index()
 
 void resend_packets(int sig)
 {
+    rounds_since_ack++;
     if (sig == SIGALRM)
 	{
             VLOG(DEBUG, "Last Acknowledgement %d \n", last_ackno);
@@ -83,7 +86,7 @@ void resend_packets(int sig)
 	    // removed from the array.
 	    VLOG(INFO, "Timeout happend");
 	    for(int i = 0; i < WINDOW_SIZE; i++){
-		if(sndpkt[i] != NULL){
+		if(sndpkt[i] != NULL && sndpkt[i]->hdr.seqno >= last_ackno){
                     VLOG(DEBUG, "Resending %d \n", sndpkt[i]->hdr.seqno);
 		    if(sendto(sockfd, sndpkt[i], TCP_HDR_SIZE + get_data_size(sndpkt[i]), 0, 
 			      ( const struct sockaddr *)&serveraddr, serverlen) < 0)
@@ -159,7 +162,7 @@ int main (int argc, char **argv)
     init_timer(RETRY, resend_packets);
     next_seqno = 0;
     while(1){
-	while (len > 0 && num_packets_sent < WINDOW_SIZE)
+	while (num_packets_sent < WINDOW_SIZE)
 	    {
                 VLOG(INFO, "Sending new packet");
                 num_packets_sent++;
@@ -206,6 +209,7 @@ int main (int argc, char **argv)
 	recvpkt = (tcp_packet *)buffer;
         VLOG(DEBUG, "%d \n", recvpkt->hdr.ackno);
 	if(recvpkt->hdr.ackno > last_ackno){
+            rounds_since_ack = 0;
             VLOG(DEBUG, "New Acknowledgement");
 	    assert(get_data_size(recvpkt) <= DATA_SIZE);
 	    stop_timer();
@@ -216,14 +220,14 @@ int main (int argc, char **argv)
 	    }
 	    pkt_index = find_packet_index(last_ackno);
 	    sndpkt[pkt_index] = NULL;
-	    last_ackno = recvpkt->hdr.ackno;
+  	    last_ackno = recvpkt->hdr.ackno;
 	}
-	if(len <= 0){
-	    break;
-	}
+        VLOG(DEBUG, "%d \n", num_packets_sent);
+        if(recvpkt->hdr.ackno == -1 || num_packets_sent==0 || rounds_since_ack==100){
+            return 0;
+        }
     }
     return 0;
-
 }
 
 
