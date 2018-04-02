@@ -223,7 +223,7 @@ int main (int argc, char **argv)
   	    last_ackno = recvpkt->hdr.ackno;
 	}
         VLOG(DEBUG, "%d \n", num_packets_sent);
-        if(recvpkt->hdr.ackno == -1 || num_packets_sent==0 || rounds_since_ack==100){
+        if(recvpkt->hdr.ackno == -1 || num_packets_sent==0 || rounds_since_ack==500){
             return 0;
         }
     }
