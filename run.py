@@ -8,6 +8,8 @@ from mininet.net import Mininet
 from mininet.util import dumpNodeConnections
 from mininet.link import TCLink
 from mininet.log import setLogLevel
+import filecmp
+import sys
 
 class SingleSwitchTopo(Topo):
     "Single switch connected to n hosts."
@@ -34,7 +36,9 @@ print "Testing network connectivity"
 h1 = net.get('h1')
 h2 = net.get('h2')
 #CLI(net)
-print h1.cmd('/home/rdt2.0/obj/rdt_sender 10.0.0.1 4040 /home/small_file.bin')
-print h2.cmd('/home/rdt2.0/obj/rdt_receiver 4040 /home/FILE_RCVD')
-#net.pingAll()
-net.stop()
+h2.sendCmd('/home/rdt2.0/obj/rdt_receiver 4040 /home/FILE_RCVD') 
+h1.cmd('/home/rdt2.0/obj/rdt_sender 10.0.0.2 4040 /home/small_file.bin')
+if(filecmp.cmp('/home/small_file.bin', '/home/FILE_RCVD')):
+    print "Task 1 Passed"
+else:
+    print "Task 1 Failed"
