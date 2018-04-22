@@ -25,8 +25,21 @@
  * In the currenlt implemenetation window size is one, hence we have
  * onlyt one send and receive packet
  */
+#define CACHE_SIZE 1024
 tcp_packet *recvpkt;
 tcp_packet *sndpkt;
+tcp_packet *cache[CACHE_SIZE];
+
+tcp_packet* find_next_packet(tcp_packet *cache[], int expected_seqno){
+    for(int i = 0; i < CACHE_SIZE; i++){
+        if(cache[i]->hdr.seqno == expected_seqno){
+            tcp_packet *nxtpkt = cache[i];
+            cache[i] = NULL;
+            return nxtpkt;
+        }
+    }
+    return NULL;
+}
 
 int main(int argc, char **argv) {
     int sockfd; /* socket */
@@ -119,10 +132,20 @@ int main(int argc, char **argv) {
          * sendto: ACK back to the client 
          */
 	if(recvpkt->hdr.seqno == expected_seqno) {
-	    expected_seqno += recvpkt->hdr.data_size;
-            fseek(fp, recvpkt->hdr.seqno, SEEK_SET);
-            fwrite(recvpkt->data, 1, recvpkt->hdr.data_size, fp);
-	}
+            tcp_packet *nextpkt = recvpkt;
+            while(nextpkt != NULL && nextpkt->hdr.seqno == expected_seqno){
+                expected_seqno += recvpkt->hdr.data_size;
+                fseek(fp, recvpkt->hdr.seqno, SEEK_SET);
+                fwrite(recvpkt->data, 1, recvpkt->hdr.data_size, fp);
+                nextpkt = find_next_packet(cache, expected_seqno);
+            }
+	} else if(recvpkt->hdr.seqno > expected_seqno){
+            for(int i = 0; i < CACHE_SIZE; i++){
+                if(cache[i] == NULL){
+                    cache[i] = recvpkt;
+                }
+            }
+        }
 	gettimeofday(&tp, NULL);
 	VLOG(DEBUG, "%lu, %d, %d", tp.tv_sec, recvpkt->hdr.data_size, recvpkt->hdr.seqno);
         

@@ -121,6 +121,7 @@ int main (int argc, char **argv)
 {
     int portno, len=1, pkt_index;
     int next_seqno;
+    int dup_ack = 0;
     char *hostname;
     char buffer[DATA_SIZE];
     FILE *fp;
@@ -221,7 +222,14 @@ int main (int argc, char **argv)
 	    pkt_index = find_packet_index(last_ackno);
 	    sndpkt[pkt_index] = NULL;
   	    last_ackno = recvpkt->hdr.ackno;
-	}
+            dup_ack = 0;
+	} else {
+            dup_ack++;
+            if(dup_ack >= 3){
+                signal(SIGALRM, resend_packets);
+                dup_ack = 0;
+            }
+        }
         VLOG(DEBUG, "%d \n", num_packets_sent);
         if(recvpkt->hdr.ackno == -1 || num_packets_sent==0 || rounds_since_ack==500){
             return 0;
