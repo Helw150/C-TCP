@@ -32,7 +32,7 @@ tcp_packet *cache[CACHE_SIZE];
 
 tcp_packet* find_next_packet(tcp_packet *cache[], int expected_seqno){
     for(int i = 0; i < CACHE_SIZE; i++){
-        if(cache[i]->hdr.seqno == expected_seqno){
+        if(cache[i] != NULL && cache[i]->hdr.seqno == expected_seqno){
             tcp_packet *nxtpkt = cache[i];
             cache[i] = NULL;
             return nxtpkt;
