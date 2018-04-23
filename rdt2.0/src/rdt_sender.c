@@ -20,11 +20,14 @@
 #include"common.h"
 
 #define STDIN_FD    0
-#define RETRY  120 //milli second
-#define WINDOW_SIZE  10
+#define RETRY  120 //milli secon
+#define TCP_MAX_PACKETS 1073741824/MSS_SIZE // TCP max num packets
 
 int next_seqno=0;
 int send_base=0;
+int WINDOW_SIZE = 1;
+float congestion_control = 0.0;
+int ssthresh = 64;
 
 int sockfd, serverlen;
 int num_packets_sent = 0;
@@ -32,7 +35,8 @@ int last_ackno = 0;
 int rounds_since_ack = 0;
 struct sockaddr_in serveraddr;
 struct itimerval timer; 
-tcp_packet *sndpkt[WINDOW_SIZE];
+tcp_packet *sndpkt[TCP_MAX_PACKETS];
+tcp_packet *cache[TCP_MAX_PACKETS];
 tcp_packet *recvpkt;
 sigset_t sigmask;       
 
@@ -49,13 +53,83 @@ void stop_timer()
     sigprocmask(SIG_BLOCK, &sigmask, NULL);
 }
 
-int find_packet_index(int seqno)
+void expandWindow(int newWindow)
+{
+    VLOG(DEBUG, "Expanding window to %d\n", newWindow);
+    WINDOW_SIZE = newWindow;
+    return;
+}
+
+void sortCache(){
+    int lastNonNullIndex = 0;
+
+    for (int i = 0; i < TCP_MAX_PACKETS; i++){
+	if(cache[i] != NULL){
+	    cache[lastNonNullIndex++] = cache[i];
+	}
+    }
+
+    int count = lastNonNullIndex;
+
+    while(count < TCP_MAX_PACKETS){
+	cache[count++] = NULL;
+    }
+
+    for (int i = 0; i < TCP_MAX_PACKETS; i++){
+	if(cache[i] != NULL){
+	    for (int j = 0; j < TCP_MAX_PACKETS; j++){
+		assert(cache[i] != NULL);
+		if(cache[j] == NULL){
+		    break;
+		} else if (cache[j]->hdr.seqno > cache[i]->hdr.seqno){
+		    tcp_packet *tmp = cache[i];
+		    cache[i] = cache[j];   
+		    cache[j] = tmp;
+		} else if (i != j && cache[j]->hdr.seqno == cache[i]->hdr.seqno) {
+		    cache[j] = NULL;
+		}
+	    }
+	}
+    }
+    assert(cache[lastNonNullIndex+1] == NULL);
+}
+
+
+void shrinkWindow(int newWindow)
+{
+    // Cache any packets that were in the window before shrinkage
+    for(int i = newWindow; i < WINDOW_SIZE; i++){
+	for(int j = 0; j < TCP_MAX_PACKETS; j++){
+	    if(cache[j] == NULL){
+		cache[j] = sndpkt[i];
+		sndpkt[i] = NULL;
+		num_packets_sent--;
+		break;
+	    }
+	}
+    }
+    sortCache();
+    WINDOW_SIZE = newWindow;
+    return;
+}
+
+
+int remove_stale_packets(int seqno)
 {
     int pktindex = -1;
     for(int i = 0; i < WINDOW_SIZE; i++){
-        if (sndpkt[i]->hdr.seqno < seqno){
+        if (sndpkt[i] != NULL && sndpkt[i]->hdr.seqno <= seqno){
             sndpkt[i] = NULL;
             num_packets_sent--;
+	    if(WINDOW_SIZE < ssthresh){
+		expandWindow(WINDOW_SIZE+1);
+	    } else {
+		congestion_control += 1/(WINDOW_SIZE+congestion_control);
+		if(congestion_control > 1){
+		    congestion_control -= 1;
+		    expandWindow(WINDOW_SIZE+1);
+		}
+	    }
         }
 	if (sndpkt[i] != NULL && seqno == sndpkt[i]->hdr.seqno){
 	    pktindex = i;
@@ -78,6 +152,12 @@ int find_empty_index()
 void resend_packets(int sig)
 {
     rounds_since_ack++;
+    if(WINDOW_SIZE >= 4){
+	ssthresh = WINDOW_SIZE/2;
+    } else {
+	ssthresh = 2;
+    }
+    shrinkWindow(1);
     if (sig == SIGALRM)
 	{
             VLOG(DEBUG, "Last Acknowledgement %d \n", last_ackno);
@@ -214,24 +294,23 @@ int main (int argc, char **argv)
             VLOG(DEBUG, "New Acknowledgement");
 	    assert(get_data_size(recvpkt) <= DATA_SIZE);
 	    stop_timer();
-	    num_packets_sent--;
 	    printf("%d \n", num_packets_sent);
 	    if(num_packets_sent > 0){
 		start_timer();
 	    }
-	    pkt_index = find_packet_index(last_ackno);
-	    sndpkt[pkt_index] = NULL;
+	    remove_stale_packets(last_ackno);
   	    last_ackno = recvpkt->hdr.ackno;
             dup_ack = 0;
 	} else {
             dup_ack++;
             if(dup_ack >= 3){
-                signal(SIGALRM, resend_packets);
+                resend_packets(SIGALRM);
                 dup_ack = 0;
             }
         }
         VLOG(DEBUG, "%d \n", num_packets_sent);
-        if(recvpkt->hdr.ackno == -1 || num_packets_sent==0 || rounds_since_ack==500){
+        if(recvpkt->hdr.ackno == -1 || rounds_since_ack==500){
+	    VLOG(DEBUG, "Final Window Size: %d \n", WINDOW_SIZE);
             return 0;
         }
     }
