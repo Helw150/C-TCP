@@ -131,7 +131,9 @@ int main(int argc, char **argv) {
         /* 
          * sendto: ACK back to the client 
          */
+	
 	if(recvpkt->hdr.seqno == expected_seqno) {
+	    VLOG(DEBUG, "Received correct packet: %d", recvpkt->hdr.seqno);
             tcp_packet *nextpkt = recvpkt;
             while(nextpkt != NULL && nextpkt->hdr.seqno == expected_seqno){
                 expected_seqno += recvpkt->hdr.data_size;
@@ -140,7 +142,8 @@ int main(int argc, char **argv) {
                 nextpkt = find_next_packet(cache, expected_seqno);
             }
 	} else if(recvpkt->hdr.seqno > expected_seqno){
-            for(int i = 0; i < CACHE_SIZE; i++){
+	    VLOG(DEBUG, "Cached Packet: %d", recvpkt->hdr.seqno);
+	    for(int i = 0; i < CACHE_SIZE; i++){
                 if(cache[i] == NULL){
                     cache[i] = recvpkt;
                 }
@@ -152,6 +155,7 @@ int main(int argc, char **argv) {
 	sndpkt = make_packet(0);
 	sndpkt->hdr.ackno = expected_seqno;
 	sndpkt->hdr.ctr_flags = ACK;
+	VLOG(DEBUG, "Sending Ack: %d", sndpkt->hdr.ackno);
 	if (sendto(sockfd, sndpkt, TCP_HDR_SIZE, 0, 
 		   (struct sockaddr *) &clientaddr, clientlen) < 0) {
 	    error("ERROR in sendto");

@@ -20,7 +20,7 @@
 #include"common.h"
 
 #define STDIN_FD    0
-#define RETRY  120 //milli secon
+#define RETRY  1000 //milli secon
 #define TCP_MAX_PACKETS 1073741824/MSS_SIZE // TCP max num packets
 
 int next_seqno=0;
@@ -70,18 +70,20 @@ void sortCache(){
     }
 
     int count = lastNonNullIndex;
-
+    
     while(count < TCP_MAX_PACKETS){
 	cache[count++] = NULL;
     }
 
+    assert(cache[lastNonNullIndex] == NULL);
+    
     for (int i = 0; i < TCP_MAX_PACKETS; i++){
 	if(cache[i] != NULL){
-	    for (int j = 0; j < TCP_MAX_PACKETS; j++){
+	    for (int j = i+1; j < TCP_MAX_PACKETS; j++){
 		assert(cache[i] != NULL);
 		if(cache[j] == NULL){
 		    break;
-		} else if (cache[j]->hdr.seqno > cache[i]->hdr.seqno){
+		} else if (cache[j]->hdr.seqno < cache[i]->hdr.seqno){
 		    tcp_packet *tmp = cache[i];
 		    cache[i] = cache[j];   
 		    cache[j] = tmp;
@@ -91,7 +93,9 @@ void sortCache(){
 	    }
 	}
     }
-    assert(cache[lastNonNullIndex+1] == NULL);
+    for(int i = 0; i < lastNonNullIndex; i++){
+	VLOG(DEBUG, "Cached Packet on Shrink: %d", cache[i]->hdr.seqno);
+    }
 }
 
 
@@ -201,6 +205,7 @@ int main (int argc, char **argv)
 {
     int portno, len=1, pkt_index;
     int next_seqno;
+    int taken_from_cache = 0;
     int dup_ack = 0;
     char *hostname;
     char buffer[DATA_SIZE];
@@ -248,20 +253,34 @@ int main (int argc, char **argv)
                 VLOG(INFO, "Sending new packet");
                 num_packets_sent++;
 		pkt_index = find_empty_index();
-		len = fread(buffer, 1, DATA_SIZE, fp);
-		if (len <= 0)
-		    {
-			VLOG(INFO, "End Of File has been reached");
-			sndpkt[pkt_index] = make_packet(0);
-			sendto(sockfd, sndpkt[pkt_index], TCP_HDR_SIZE,  0,
-			       (const struct sockaddr *)&serveraddr, serverlen);
+		assert(sndpkt[pkt_index] == NULL);
+		assert(pkt_index != -1);
+		for(int i = 0; i < TCP_MAX_PACKETS; i++){
+		    if(cache[i] != NULL){
+			taken_from_cache++;
+			VLOG(DEBUG, "Sending from cache");
+			sndpkt[pkt_index] = cache[i];
+			cache[i] = NULL;
+			sortCache();
 			break;
 		    }
-		send_base = next_seqno;
-		next_seqno = send_base + len;
-		sndpkt[pkt_index] = make_packet(len);
-		memcpy(sndpkt[pkt_index]->data, buffer, len);
-		sndpkt[pkt_index]->hdr.seqno = send_base;
+		}
+		if(sndpkt[pkt_index] == NULL){
+		    len = fread(buffer, 1, DATA_SIZE, fp);
+		    if (len <= 0)
+			{
+			    VLOG(INFO, "End Of File has been reached");
+			    sndpkt[pkt_index] = make_packet(0);
+			    sendto(sockfd, sndpkt[pkt_index], TCP_HDR_SIZE,  0,
+				   (const struct sockaddr *)&serveraddr, serverlen);
+			    break;
+			}
+		    send_base = next_seqno;
+		    next_seqno = send_base + len;
+		    sndpkt[pkt_index] = make_packet(len);
+		    memcpy(sndpkt[pkt_index]->data, buffer, len);
+		    sndpkt[pkt_index]->hdr.seqno = send_base;
+		}
 		//Wait for ACK
 		VLOG(DEBUG, "Sending packet %d to %s", 
 		     send_base, inet_ntoa(serveraddr.sin_addr));
@@ -288,13 +307,11 @@ int main (int argc, char **argv)
 		error("recvfrom");
 	    }
 	recvpkt = (tcp_packet *)buffer;
-        VLOG(DEBUG, "%d \n", recvpkt->hdr.ackno);
+            VLOG(DEBUG, "Acknowledgement %d \n", recvpkt->hdr.ackno);
 	if(recvpkt->hdr.ackno > last_ackno){
             rounds_since_ack = 0;
-            VLOG(DEBUG, "New Acknowledgement");
 	    assert(get_data_size(recvpkt) <= DATA_SIZE);
 	    stop_timer();
-	    printf("%d \n", num_packets_sent);
 	    if(num_packets_sent > 0){
 		start_timer();
 	    }
@@ -308,9 +325,10 @@ int main (int argc, char **argv)
                 dup_ack = 0;
             }
         }
-        VLOG(DEBUG, "%d \n", num_packets_sent);
+        VLOG(DEBUG, "Number of Packets on the Wire: %d \n", num_packets_sent);
         if(recvpkt->hdr.ackno == -1 || rounds_since_ack==500){
 	    VLOG(DEBUG, "Final Window Size: %d \n", WINDOW_SIZE);
+	    VLOG(DEBUG, "Cached Count: %d \n", taken_from_cache);
             return 0;
         }
     }
