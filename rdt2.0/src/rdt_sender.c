@@ -38,6 +38,7 @@ struct itimerval timer;
 tcp_packet *sndpkt[TCP_MAX_PACKETS];
 tcp_packet *cache[TCP_MAX_PACKETS];
 tcp_packet *recvpkt;
+FILE *csv;
 sigset_t sigmask;       
 
 
@@ -57,6 +58,16 @@ void expandWindow(int newWindow)
 {
     VLOG(DEBUG, "Expanding window to %d\n", newWindow);
     WINDOW_SIZE = newWindow;
+    return;
+}
+
+void writeToCSV(double window_size){
+    char buff[20];
+    time_t now = time(0);
+    struct tm *sTm = gmtime (&now);
+
+    strftime (buff, sizeof(buff), "%H:%M:%S", sTm);
+    fprintf(csv, "%s,%f\n", buff, window_size);
     return;
 }
 
@@ -127,12 +138,14 @@ int remove_stale_packets(int seqno)
             num_packets_sent--;
 	    if(WINDOW_SIZE < ssthresh){
 		expandWindow(WINDOW_SIZE+1);
+		writeToCSV(WINDOW_SIZE);
 	    } else {
 		congestion_control += 1/(WINDOW_SIZE+congestion_control);
 		if(congestion_control > 1){
 		    congestion_control -= 1;
 		    expandWindow(WINDOW_SIZE+1);
 		}
+		writeToCSV(WINDOW_SIZE+congestion_control);
 	    }
         }
 	if (sndpkt[i] != NULL && seqno == sndpkt[i]->hdr.seqno){
@@ -162,6 +175,7 @@ void resend_packets(int sig)
 	ssthresh = 2;
     }
     shrinkWindow(1);
+    writeToCSV(1);
     if (sig == SIGALRM)
 	{
             VLOG(DEBUG, "Last Acknowledgement %d \n", last_ackno);
@@ -210,11 +224,17 @@ int main (int argc, char **argv)
     char *hostname;
     char buffer[DATA_SIZE];
     FILE *fp;
+    
     /* check command line arguments */
     if (argc != 4) {
         fprintf(stderr,"usage: %s <hostname> <port> <FILE>\n", argv[0]);
         exit(0);
     }
+    csv = fopen("CWND.csv", "w");
+    if (csv == NULL) {
+	error("CWND.csv");
+    }
+    fprintf(csv, "TIME,CWND\n");
     hostname = argv[1];
     portno = atoi(argv[2]);
     fp = fopen(argv[3], "r");
