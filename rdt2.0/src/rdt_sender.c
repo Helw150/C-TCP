@@ -109,10 +109,46 @@ void sortCache(){
     }
 }
 
+void sortSndPkt(){
+    int lastNonNullIndex = 0;
+
+    for (int i = 0; i < TCP_MAX_PACKETS; i++){
+	if(sndpkt[i] != NULL){
+	    sndpkt[lastNonNullIndex++] = sndpkt[i];
+	}
+    }
+
+    int count = lastNonNullIndex;
+    
+    while(count < TCP_MAX_PACKETS){
+	sndpkt[count++] = NULL;
+    }
+
+    assert(sndpkt[lastNonNullIndex] == NULL);
+    
+    for (int i = 0; i < TCP_MAX_PACKETS; i++){
+	if(sndpkt[i] != NULL){
+	    for (int j = i+1; j < TCP_MAX_PACKETS; j++){
+		assert(sndpkt[i] != NULL);
+		if(sndpkt[j] == NULL){
+		    break;
+		} else if (sndpkt[j]->hdr.seqno < sndpkt[i]->hdr.seqno){
+		    tcp_packet *tmp = sndpkt[i];
+		    sndpkt[i] = sndpkt[j];   
+		    sndpkt[j] = tmp;
+		} else if (i != j && sndpkt[j]->hdr.seqno == sndpkt[i]->hdr.seqno) {
+		    sndpkt[j] = NULL;
+		}
+	    }
+	}
+    }
+}
+
 
 void shrinkWindow(int newWindow)
 {
-    // Cache any packets that were in the window before shrinkage
+    sortSndPkt();
+c    // Cache any packets that were in the window before shrinkage
     for(int i = newWindow; i < WINDOW_SIZE; i++){
 	for(int j = 0; j < TCP_MAX_PACKETS; j++){
 	    if(cache[j] == NULL){
@@ -275,16 +311,14 @@ int main (int argc, char **argv)
 		pkt_index = find_empty_index();
 		assert(sndpkt[pkt_index] == NULL);
 		assert(pkt_index != -1);
-		for(int i = 0; i < TCP_MAX_PACKETS; i++){
-		    if(cache[i] != NULL){
-			taken_from_cache++;
-			VLOG(DEBUG, "Sending from cache");
-			sndpkt[pkt_index] = cache[i];
-			cache[i] = NULL;
-			sortCache();
-			break;
-		    }
-		}
+                if(cache[0] != NULL){
+                    taken_from_cache++;
+                    VLOG(DEBUG, "Sending from cache");
+                    sndpkt[pkt_index] = cache[0];
+                    cache[0] = NULL;
+                    sortCache();
+                    break;
+                }
 		if(sndpkt[pkt_index] == NULL){
 		    len = fread(buffer, 1, DATA_SIZE, fp);
 		    if (len <= 0)
