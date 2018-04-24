@@ -27,7 +27,7 @@ int next_seqno=0;
 int send_base=0;
 int WINDOW_SIZE = 1;
 float congestion_control = 0.0;
-int ssthresh = 64;
+float ssthresh = 64.0;
 
 int sockfd, serverlen;
 int num_packets_sent = 0;
@@ -65,9 +65,15 @@ void writeToCSV(double window_size){
     char buff[20];
     time_t now = time(0);
     struct tm *sTm = gmtime (&now);
+    int millisec;
+    struct timeval tv;
 
-    strftime (buff, sizeof(buff), "%H:%M:%S", sTm);
-    fprintf(csv, "%s,%f\n", buff, window_size);
+    gettimeofday(&tv, NULL);
+
+    millisec = (int)tv.tv_usec;
+    
+    strftime (buff, sizeof(buff), "%H:%M:%S:", sTm);
+    fprintf(csv, "%s.%03d,%f,%f\n", buff, millisec, window_size, ssthresh);
     return;
 }
 
@@ -163,12 +169,14 @@ void shrinkWindow(int newWindow)
     }
     sortCache();
     WINDOW_SIZE = newWindow;
+    congestion_control = 0;
     return;
 }
 
 
 int remove_stale_packets(int seqno)
 {
+    VLOG(DEBUG, "Removing all packets less than: %d", seqno);
     int pktindex = -1;
     for(int i = 0; i < WINDOW_SIZE; i++){
         if (sndpkt[i] != NULL && sndpkt[i]->hdr.seqno <= seqno){
@@ -206,17 +214,17 @@ int find_empty_index()
 
 void resend_packets(int sig)
 {
-    rounds_since_ack++;
-    if(WINDOW_SIZE >= 4){
-	ssthresh = WINDOW_SIZE/2;
-    } else {
-	ssthresh = 2;
-    }
-    shrinkWindow(1);
-    writeToCSV(1);
-    assert(sndpkt[0] != NULL);
     if (sig == SIGALRM)
 	{
+            rounds_since_ack++;
+            if(WINDOW_SIZE >= 4){
+                ssthresh = (WINDOW_SIZE+congestion_control)/2.0;
+            } else {
+                ssthresh = 2.0;
+            }
+            shrinkWindow(1);
+            writeToCSV(1);
+            assert(sndpkt[0] != NULL);
             VLOG(DEBUG, "Last Acknowledgement %d \n", last_ackno);
 	    //Resend all packets in our currently sent packets
 	    // array. Since already acknowledged packets are
@@ -253,8 +261,9 @@ void init_timer(int delay, void (*sig_handler)(int))
 int main (int argc, char **argv)
 {
     int portno, len=1, pkt_index;
+    int new_ack_since_dup;
     int next_seqno;
-    int taken_from_cache = 0;
+    int taken_from_cache = 0, retransmit = 0;
     int dup_ack = 0;
     char *hostname;
     char buffer[DATA_SIZE];
@@ -359,8 +368,9 @@ int main (int argc, char **argv)
 		error("recvfrom");
 	    }
 	recvpkt = (tcp_packet *)buffer;
-        VLOG(DEBUG, "Acknowledgement %d \n", recvpkt->hdr.ackno);
+        VLOG(DEBUG, "Acknowledgement: %d - Last Correct Acknowledgement: %d\n", recvpkt->hdr.ackno, last_ackno);
         if(recvpkt->hdr.ackno > last_ackno){
+            new_ack_since_dup = 1;
             rounds_since_ack = 0;
 	    assert(get_data_size(recvpkt) <= DATA_SIZE);
 	    stop_timer();
@@ -368,21 +378,26 @@ int main (int argc, char **argv)
 		start_timer();
 	    }
             remove_stale_packets(last_ackno);
-	    last_ackno = recvpkt->hdr.ackno;
+            last_ackno = recvpkt->hdr.ackno;
             dup_ack = 0;
 	} else {
+            remove_stale_packets(recvpkt->hdr.ackno-1);
             dup_ack++;
-            if(dup_ack >= 3){
+            VLOG(DEBUG, "DUP ACK");
+            if(dup_ack >= 3 && new_ack_since_dup){
+                new_ack_since_dup = 0;
+                stop_timer();
+                retransmit++;
                 resend_packets(SIGALRM);
                 dup_ack = 0;
                 VLOG(DEBUG, "Fast Retransmit");
-                resend_packets(SIGALRM);
             }
         }
         VLOG(DEBUG, "Number of Packets on the Wire: %d \n", num_packets_sent);
         VLOG(DEBUG, "Window Size: %d \n", WINDOW_SIZE);
         if(recvpkt->hdr.ackno == -1 || rounds_since_ack==500){
-	    VLOG(DEBUG, "Final Window Size: %d \n", WINDOW_SIZE);
+            VLOG(DEBUG, "Number of Fast Retransmits: %d \n", retransmit);
+            VLOG(DEBUG, "Final Window Size: %d \n", WINDOW_SIZE);
 	    VLOG(DEBUG, "Cached Count: %d \n", taken_from_cache);
             return 0;
         }
