@@ -1,5 +1,6 @@
 # project2
-starter code project2
+Task 1 is tagged in the Task 1 Release and held in the task-1 branch.
+Task 2 is held in the master branch and tagged as the Task 2 release.
 ## How to Build
 
 cd ~/github/project2/rdt2.0/src
@@ -34,50 +35,15 @@ cksum FILE_RCVD small_file.bin
 
 
 ## How to test Task 2 ?
-
-
 ### Repeat the step from task1
-
-### From mininet VM run 
-
-scp -r -P 4410 nr83@M-DCLAP-P302-CSD.ABUDHABI.NYU.EDU:/var/ftp/project2.tar.gz .
-
-### Extract the file and replace the folder project2/rdt2.0 with your version
-
 ### Go to rdt2.0/src directory and build
 
 ### Go to project2 directory
 
-project2$ ls -l
-
-total 181912
-
--rw-r--r-- 1 mininet mininet   1647925 Apr  5  2017 DL_2_16Mbps
-
--rw-rw-r-- 1 mininet mininet 182501376 Apr  5  2017 FILE
-
--rw-r--r-- 1 root    root      1048576 Mar 13 23:02 FILE_RCVD
-
--rw-r--r-- 1 root    root         1036 Mar 13 22:30 c1
-
-drwxrwxr-x 5 mininet mininet      4096 Apr  5  2017 cellsim
-
-#### drwxr-xr-x 2 mininet mininet      4096 Mar 13 22:30 output
-
-#### -rw-r--r-- 1 mininet mininet      1753 Mar 13 22:27 plot.py
-
-#### drwxrwxr-x 3 mininet mininet      4096 Mar 13 23:04 rdt2.0
-
-#### -rw-r--r-- 1 mininet mininet      3819 Apr 12  2017 run.py
-
-#### -rwxrwxr-x 1 mininet mininet       272 Apr 11  2017 run.sh
-
--rw-rw-r-- 1 mininet mininet   1048576 Mar 13 22:45 small_file.bin
-
-
 project2$ sudo ./run.sh
 
 
-### Verify the throughput file in output directory
+### RUN.SH has been amended according to the instructions to produce cwnd.pdf in the output directory
+### Check that directory to evaluate after running run.sh
 
 
