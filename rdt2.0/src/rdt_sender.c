@@ -180,6 +180,7 @@ void shrinkWindow(int newWindow)
 
 int remove_stale_packets(int seqno)
 {
+    sortSndPkt();
     VLOG(DEBUG, "Removing all packets less than: %d", seqno);
     int pktindex = -1;
     int i;
