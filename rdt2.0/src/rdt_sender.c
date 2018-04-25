@@ -74,7 +74,7 @@ void writeToCSV(double window_size){
 
     millisec = (int)tv.tv_usec;
     
-    strftime (buff, sizeof(buff), "%H:%M:%S:", sTm);
+    strftime (buff, sizeof(buff), "%H:%M:%S", sTm);
     fprintf(csv, "%s.%03d,%f,%f\n", buff, millisec, window_size, ssthresh);
     return;
 }
@@ -82,7 +82,8 @@ void writeToCSV(double window_size){
 void sortCache(){
     int lastNonNullIndex = 0;
 
-    for (int i = 0; i < TCP_MAX_PACKETS; i++){
+    int i, j;
+    for (i = 0; i < TCP_MAX_PACKETS; i++){
 	if(cache[i] != NULL){
 	    cache[lastNonNullIndex++] = cache[i];
 	}
@@ -96,9 +97,9 @@ void sortCache(){
 
     assert(cache[lastNonNullIndex] == NULL);
     
-    for (int i = 0; i < TCP_MAX_PACKETS; i++){
+    for (i = 0; i < TCP_MAX_PACKETS; i++){
 	if(cache[i] != NULL){
-	    for (int j = i+1; j < TCP_MAX_PACKETS; j++){
+	    for (j = i+1; j < TCP_MAX_PACKETS; j++){
 		assert(cache[i] != NULL);
 		if(cache[j] == NULL){
 		    break;
@@ -112,15 +113,15 @@ void sortCache(){
 	    }
 	}
     }
-    for(int i = 0; i < lastNonNullIndex; i++){
+    for( i = 0; i < lastNonNullIndex; i++){
 	VLOG(DEBUG, "Cached Packet on Shrink: %d", cache[i]->hdr.seqno);
     }
 }
 
 void sortSndPkt(){
     int lastNonNullIndex = 0;
-
-    for (int i = 0; i < TCP_MAX_PACKETS; i++){
+    int i, j;
+    for (i = 0; i < TCP_MAX_PACKETS; i++){
 	if(sndpkt[i] != NULL){
 	    sndpkt[lastNonNullIndex++] = sndpkt[i];
 	}
@@ -134,9 +135,9 @@ void sortSndPkt(){
 
     assert(sndpkt[lastNonNullIndex] == NULL);
     
-    for (int i = 0; i < TCP_MAX_PACKETS; i++){
+    for (i = 0; i < TCP_MAX_PACKETS; i++){
 	if(sndpkt[i] != NULL){
-	    for (int j = i+1; j < TCP_MAX_PACKETS; j++){
+	    for (j = i+1; j < TCP_MAX_PACKETS; j++){
 		assert(sndpkt[i] != NULL);
 		if(sndpkt[j] == NULL){
 		    break;
@@ -156,10 +157,11 @@ void sortSndPkt(){
 void shrinkWindow(int newWindow)
 {
     sortSndPkt();
+    int i, j;
     // Cache any packets that were in the window before shrinkage
-    for(int i = newWindow; i < WINDOW_SIZE; i++){
+    for( i = newWindow; i < WINDOW_SIZE; i++){
         if(sndpkt[i] != NULL){
-            for(int j = 0; j < TCP_MAX_PACKETS; j++){
+            for( j = 0; j < TCP_MAX_PACKETS; j++){
                 if(cache[j] == NULL){
                     cache[j] = sndpkt[i];
                     sndpkt[i] = NULL;
@@ -180,7 +182,8 @@ int remove_stale_packets(int seqno)
 {
     VLOG(DEBUG, "Removing all packets less than: %d", seqno);
     int pktindex = -1;
-    for(int i = 0; i < WINDOW_SIZE; i++){
+    int i;
+    for( i = 0; i < WINDOW_SIZE; i++){
         if (sndpkt[i] != NULL && sndpkt[i]->hdr.seqno <= seqno){
             sndpkt[i] = NULL;
             num_packets_sent--;
@@ -205,7 +208,8 @@ int remove_stale_packets(int seqno)
 
 int find_empty_index()
 {
-    for(int i = 0; i < WINDOW_SIZE; i++){
+    int i;
+    for( i = 0; i < WINDOW_SIZE; i++){
 	if (sndpkt[i] == NULL){
 	    return i;
 	}

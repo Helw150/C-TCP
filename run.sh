@@ -1,5 +1,13 @@
-mn --link tc,bw=10,delay=10ms,loss=2
-h1 ./rdt2.0/obj/rdt_receiver 60001 FILE_RCVD &
-h2 ./rdt2.0/obj/rdt_sender 10.0.0.1 60001 small_file.bin &
-exit
-cksum FILE_RCVD small_file.bin
+#!/bin/bash
+
+# Note: Mininet must be run as root.  So invoke this shell script
+# using sudo.
+
+time=30
+dir=output
+name=projectTest
+trace=DL_2_16Mbps
+
+# project2 TCP
+python run.py -tr $trace -t $time --name $name --dir $dir
+python plot.py -tr $trace --name $name --dir $dir

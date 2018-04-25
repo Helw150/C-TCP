@@ -26,18 +26,21 @@
  * In the currenlt implemenetation window size is one, hence we have
  * onlyt one send and receive packet
  */
-#define CACHE_SIZE 1024
+#define CACHE_SIZE 1073741824/MSS_SIZE
 tcp_packet *recvpkt;
 tcp_packet *sndpkt;
 tcp_packet *cache[CACHE_SIZE];
 
 tcp_packet* find_next_packet(tcp_packet *cache[], int expected_seqno){
-    for(int i = 0; i < CACHE_SIZE; i++){
+    int i;
+    for(i = 0; i < CACHE_SIZE; i++){
         if(cache[i] != NULL && cache[i]->hdr.seqno == expected_seqno){
             tcp_packet *nxtpkt = cache[i];
             cache[i] = NULL;
             return nxtpkt;
-        }
+        } else if( cache[i] != NULL && cache[i]->hdr.seqno < expected_seqno){
+	    cache[i] = NULL;
+	}
     }
     return NULL;
 }
@@ -133,9 +136,9 @@ int main(int argc, char **argv) {
         /* 
          * sendto: ACK back to the client 
          */
-	
+	int i;
 	if(recvpkt->hdr.seqno == expected_seqno) {
-	    VLOG(DEBUG, "Received correct packet: %d", recvpkt->hdr.seqno);
+	    //VLOG(DEBUG, "Received correct packet: %d", recvpkt->hdr.seqno);
             tcp_packet *nextpkt = recvpkt;
             time_cache = recvpkt->hdr.time_sent;
             while(nextpkt != NULL && nextpkt->hdr.seqno == expected_seqno){
@@ -145,8 +148,8 @@ int main(int argc, char **argv) {
                 nextpkt = find_next_packet(cache, expected_seqno);
             }
 	} else if(recvpkt->hdr.seqno > expected_seqno){
-	    VLOG(DEBUG, "Cached Packet: %d", recvpkt->hdr.seqno);
-	    for(int i = 0; i < CACHE_SIZE; i++){
+	    //VLOG(DEBUG, "Cached Packet: %d", recvpkt->hdr.seqno);
+	    for(i = 0; i < CACHE_SIZE; i++){
                 if(cache[i] == NULL){
                     cache[i] = recvpkt;
                 }
@@ -159,7 +162,7 @@ int main(int argc, char **argv) {
 	sndpkt->hdr.ackno = expected_seqno;
         sndpkt->hdr.time_sent = time_cache;
         sndpkt->hdr.ctr_flags = ACK;
-	VLOG(DEBUG, "Sending Ack: %d", sndpkt->hdr.ackno);
+	//VLOG(DEBUG, "Sending Ack: %d", sndpkt->hdr.ackno);
 	if (sendto(sockfd, sndpkt, TCP_HDR_SIZE, 0, 
 		   (struct sockaddr *) &clientaddr, clientlen) < 0) {
 	    error("ERROR in sendto");
