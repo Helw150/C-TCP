@@ -13,6 +13,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <sys/time.h>
+#include <time.h>
 #include <assert.h>
 
 #include "common.h"
@@ -43,6 +44,7 @@ tcp_packet* find_next_packet(tcp_packet *cache[], int expected_seqno){
 
 int main(int argc, char **argv) {
     int sockfd; /* socket */
+    struct timeval time_cache;
     int expected_seqno = 0;
     int portno; /* port to listen on */
     int clientlen; /* byte size of client's address */
@@ -135,6 +137,7 @@ int main(int argc, char **argv) {
 	if(recvpkt->hdr.seqno == expected_seqno) {
 	    VLOG(DEBUG, "Received correct packet: %d", recvpkt->hdr.seqno);
             tcp_packet *nextpkt = recvpkt;
+            time_cache = recvpkt->hdr.time_sent;
             while(nextpkt != NULL && nextpkt->hdr.seqno == expected_seqno){
                 expected_seqno += recvpkt->hdr.data_size;
                 fseek(fp, recvpkt->hdr.seqno, SEEK_SET);
@@ -154,7 +157,8 @@ int main(int argc, char **argv) {
         
 	sndpkt = make_packet(0);
 	sndpkt->hdr.ackno = expected_seqno;
-	sndpkt->hdr.ctr_flags = ACK;
+        sndpkt->hdr.time_sent = time_cache;
+        sndpkt->hdr.ctr_flags = ACK;
 	VLOG(DEBUG, "Sending Ack: %d", sndpkt->hdr.ackno);
 	if (sendto(sockfd, sndpkt, TCP_HDR_SIZE, 0, 
 		   (struct sockaddr *) &clientaddr, clientlen) < 0) {

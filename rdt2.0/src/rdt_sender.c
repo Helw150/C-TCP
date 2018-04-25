@@ -20,7 +20,7 @@
 #include"common.h"
 
 #define STDIN_FD    0
-#define RETRY  1000 //milli secon
+#define RETRY  120 //milli secon
 #define TCP_MAX_PACKETS 1073741824/MSS_SIZE // TCP max num packets
 
 int next_seqno=0;
@@ -33,6 +33,8 @@ int sockfd, serverlen;
 int num_packets_sent = 0;
 int last_ackno = 0;
 int rounds_since_ack = 0;
+double estimated_rtt=120, dev_rtt=0;
+double alpha=0.125, beta=0.25;
 struct sockaddr_in serveraddr;
 struct itimerval timer; 
 tcp_packet *sndpkt[TCP_MAX_PACKETS];
@@ -236,7 +238,8 @@ void resend_packets(int sig)
                       ( const struct sockaddr *)&serveraddr, serverlen) < 0){
                 error("sendto");
             }
-            
+
+            init_timer(estimated_rtt+dev_rtt, resend_packets);
 	    start_timer();
 	}
 }
@@ -246,8 +249,9 @@ void resend_packets(int sig)
  * delay: delay in milli seconds
  * sig_handler: signal handler function for resending unacknoledge packets
  */
-void init_timer(int delay, void (*sig_handler)(int)) 
+void init_timer(double float_delay, void (*sig_handler)(int)) 
 {
+    int delay = (int) float_delay;
     signal(SIGALRM, resend_packets);
     timer.it_interval.tv_sec = delay / 1000;    // sets an interval of the timer
     timer.it_interval.tv_usec = (delay % 1000) * 1000;  
@@ -309,7 +313,6 @@ int main (int argc, char **argv)
     assert(MSS_SIZE - TCP_HDR_SIZE > 0);
 
     //Stop and wait protocol
-    init_timer(RETRY, resend_packets);
     next_seqno = 0;
     while(1){
 	while (num_packets_sent < WINDOW_SIZE)
@@ -341,10 +344,11 @@ int main (int argc, char **argv)
 		    sndpkt[pkt_index] = make_packet(len);
 		    memcpy(sndpkt[pkt_index]->data, buffer, len);
 		    sndpkt[pkt_index]->hdr.seqno = send_base;
-		}
+                }
 		//Wait for ACK
 		VLOG(DEBUG, "Sending packet %d to %s", 
 		     send_base, inet_ntoa(serveraddr.sin_addr));
+                gettimeofday(&sndpkt[pkt_index]->hdr.time_sent, NULL);
 		/*
 		 * If the sendto is called for the first time, the system will
 		 * will assign a random port number so that server can send its
@@ -356,7 +360,8 @@ int main (int argc, char **argv)
 			error("sendto");
 		    }
 		if(num_packets_sent == 1){
-		    start_timer();
+                    init_timer(estimated_rtt+dev_rtt, resend_packets);
+                    start_timer();
 		}
 		//ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
 		//struct sockaddr *src_addr, socklen_t *addrlen);
@@ -370,12 +375,20 @@ int main (int argc, char **argv)
 	recvpkt = (tcp_packet *)buffer;
         VLOG(DEBUG, "Acknowledgement: %d - Last Correct Acknowledgement: %d\n", recvpkt->hdr.ackno, last_ackno);
         if(recvpkt->hdr.ackno > last_ackno){
+            struct timeval tmp, diff;
+            gettimeofday(&tmp, NULL);
+            timersub(&tmp, &recvpkt->hdr.time_sent, &diff);
+            VLOG(DEBUG, "RTT: %f", diff.tv_sec*1000.0 + diff.tv_usec/1000.0);
+            estimated_rtt = (1-alpha)*estimated_rtt + alpha * ((diff.tv_sec*1000.0) + (diff.tv_usec/1000.0));
+            dev_rtt = (1-beta)*dev_rtt + beta*abs(((diff.tv_sec*1000.0) + (diff.tv_usec/1000.0)) - estimated_rtt);
+            VLOG(DEBUG, "Estimated RTT: %f - STD Dev RTT: %f", estimated_rtt, dev_rtt);
             new_ack_since_dup = 1;
             rounds_since_ack = 0;
 	    assert(get_data_size(recvpkt) <= DATA_SIZE);
 	    stop_timer();
 	    if(num_packets_sent > 0){
-		start_timer();
+                init_timer(estimated_rtt+dev_rtt, resend_packets);
+                start_timer();
 	    }
             remove_stale_packets(last_ackno);
             last_ackno = recvpkt->hdr.ackno;

@@ -11,6 +11,7 @@ enum packet_type {
 typedef struct {
     int seqno;
     int ackno;
+    struct timeval time_sent;
     int ctr_flags;
     int data_size;
 }tcp_header;
