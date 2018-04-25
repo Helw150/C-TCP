@@ -360,7 +360,7 @@ int main (int argc, char **argv)
 			error("sendto");
 		    }
 		if(num_packets_sent == 1){
-                    init_timer(estimated_rtt+dev_rtt, resend_packets);
+                    init_timer(estimated_rtt+4*dev_rtt, resend_packets);
                     start_timer();
 		}
 		//ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
